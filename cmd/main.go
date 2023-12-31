@@ -199,7 +199,7 @@ func sql_login(WechatCode string) (ret UserInfo, ret_err error) {
 	}
 }
 
-func login(w http.ResponseWriter, r *http.Request) {
+func userLogin(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	//fmt.Println(r.Form["code"])
 	res, err := sql_login(r.Form["code"][0])
@@ -214,8 +214,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(data)
 }
 
-func insert(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("this is insert")
+func userAdd(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Fatal(err)
@@ -227,6 +226,10 @@ func insert(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 	fmt.Println(res)
+
+	if res.Avatar == "" {
+		res.Avatar = "undefined"
+	}
 
 	sql := "update user_info set name = ?,avatar = ?,intro = ? where id = ?"
 	_, err = db.Exec(sql, res.Name, res.Avatar, res.Intro, res.UserId)
@@ -241,8 +244,7 @@ func insert(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(data)
 }
 
-func getOne(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("this is getOne")
+func userGetOne(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	id := r.Form["id"][0]
 
@@ -260,8 +262,7 @@ func getOne(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(data)
 }
 
-func update(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("this is update")
+func userUpdate(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	id := r.Form["id"][0]
 
@@ -289,11 +290,9 @@ func update(w http.ResponseWriter, r *http.Request) {
 }
 
 func postGet(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("this is get")
 	r.ParseForm()
-	limit := 10
-	sql := "SELECT * FROM post_view ORDER BY create_time LIMIT ?"
-	rows, err := db.Query(sql, limit)
+	sql := "SELECT * FROM post_view ORDER BY create_time"
+	rows, err := db.Query(sql)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -319,7 +318,6 @@ func postGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func postGetOne(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("this is postGetOne")
 	r.ParseForm()
 	id := r.Form["id"][0]
 	fmt.Println(id)
@@ -628,7 +626,7 @@ func getAllCategoryType() (ret []CategoryItem) {
 	}
 	return res
 }
-func circleGetCate(w http.ResponseWriter, r *http.Request) {
+func circleGetFollow(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	sql := "SELECT * FROM circle_list"
 	rows, err := db.Query(sql)
@@ -636,6 +634,7 @@ func circleGetCate(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 	var res []CircleItem
+	var topRes []CircleItem // New slice to store elements with "Top = 1"
 	for rows.Next() {
 		var p CircleItem
 		err := rows.Scan(&p.Id, &p.Name, &p.Intro, &p.Avatar, &p.Type)
@@ -660,13 +659,13 @@ func circleGetCate(w http.ResponseWriter, r *http.Request) {
 
 		if isTop {
 			p.Top = 1
+			topRes = append(topRes, p) // Append to topRes if "Top = 1"
 		} else {
 			p.Top = 0
+			res = append(res, p) // Append to res if "Top = 0"
 		}
-
-		res = append(res, p)
 	}
-	fmt.Println(res)
+	res = append(topRes, res...) // Combine topRes and res
 
 	typeList := getAllCategoryType()
 	fmt.Println(typeList)
@@ -685,7 +684,6 @@ func categoryGet(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 
 	res := getAllCategoryType()
-	fmt.Println(res)
 
 	data := map[string]interface{}{
 		"code": 0,
@@ -739,7 +737,6 @@ func circleGetHot(w http.ResponseWriter, r *http.Request) {
 
 		res = append(res, p)
 	}
-	fmt.Println(res)
 
 	typeList := getAllCategoryType()
 	fmt.Println(typeList)
@@ -846,9 +843,7 @@ func circleGetType(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Println(res)
 	typeList := getAllCategoryType()
-	fmt.Println(typeList)
 	data := map[string]interface{}{
 		"code": 0,
 		"data": map[string]interface{}{
@@ -877,6 +872,7 @@ func circleFollow(w http.ResponseWriter, r *http.Request) {
 	userId := r.Form["userId"][0]
 	cateId := r.Form["caId"][0]
 	status := r.Form["status"][0]
+	fmt.Println(status)
 	if status == "1" {
 		sql := "insert into circle_audit_list(user_id, circle_id) values(?, ?)"
 		_, err := db.Exec(sql, userId, cateId)
@@ -897,25 +893,185 @@ func circleFollow(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(data)
 }
 
+func circleTop(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	userId := r.Form["userId"][0]
+	cateId := r.Form["caId"][0]
+	status := r.Form["status"][0]
+	if status == "1" {
+		sql := "insert into circle_top_list(user_id, circle_id) values(?, ?)"
+		_, err := db.Exec(sql, userId, cateId)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	if status == "2" {
+		sql := "delete from circle_top_list where user_id = ? and circle_id = ?"
+		_, err := db.Exec(sql, userId, cateId)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	data := map[string]interface{}{
+		"code": 0,
+	}
+	json.NewEncoder(w).Encode(data)
+}
+
+func postGetFollow(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	userId := r.Form["userId"][0]
+	sql := "SELECT * FROM post_view post, circle_audit_list follow WHERE post.circle_id = follow.circle_id AND follow.user_id = ?;"
+	rows, err := db.Query(sql, userId)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var res []PostItem
+	for rows.Next() {
+		var p PostItem
+		var id, userId, circleId int
+		err := rows.Scan(&p.Id, &p.Content, &p.UserId, &p.UserName, &p.UserAvatar, &p.CreateTime, &p.LikeCount, &p.ReadCount, &p.CommentCount, &p.CircleId, &p.CircleName, &id, &circleId, &userId)
+		if err != nil {
+			log.Fatal(err)
+		}
+		res = append(res, p)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	data := map[string]interface{}{
+		"code": 0,
+		"data": map[string]interface{}{
+			"list":   res,
+			"pageNo": 1,
+			"total":  1,
+		},
+	}
+	json.NewEncoder(w).Encode(data)
+}
+
+func _deletePost(db *sql.DB, postID string) error {
+	// 开启事务
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	// 删除与 post_id 相关的 reply
+	_, err = tx.Exec("DELETE FROM reply_like_list WHERE reply_id IN (SELECT id FROM reply_list WHERE comment_id IN (SELECT id FROM comment_list WHERE post_id = ?))", postID)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// 删除与 post_id 相关的 comment
+	_, err = tx.Exec("DELETE FROM comment_like_list WHERE comment_id IN (SELECT id FROM comment_list WHERE post_id = ?)", postID)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// 删除与 post_id 相关的 post
+	_, err = tx.Exec("DELETE FROM post_like_list WHERE post_id = ?", postID)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// 删除与 post_id 相关的 reply
+	_, err = tx.Exec("DELETE FROM reply_list WHERE comment_id IN (SELECT id FROM comment_list WHERE post_id = ?)", postID)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// 删除与 post_id 相关的 comment
+	_, err = tx.Exec("DELETE FROM comment_list WHERE post_id = ?", postID)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// 删除与 post_id 相关的 post
+	_, err = tx.Exec("DELETE FROM post_list WHERE id = ?", postID)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// 提交事务
+	err = tx.Commit()
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return nil
+}
+
+func postDelete(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	postId := r.Form["id"][0]
+
+	err := _deletePost(db, postId)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	data := map[string]interface{}{
+		"code": 0,
+	}
+	json.NewEncoder(w).Encode(data)
+}
+
+func userGetPost(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	userId := r.Form["userId"][0]
+	sql := "SELECT * FROM post_view WHERE user_id = ?;"
+	rows, err := db.Query(sql, userId)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var res []PostItem
+	for rows.Next() {
+		var p PostItem
+		err := rows.Scan(&p.Id, &p.Content, &p.UserId, &p.UserName, &p.UserAvatar, &p.CreateTime, &p.LikeCount, &p.ReadCount, &p.CommentCount, &p.CircleId, &p.CircleName)
+		if err != nil {
+			log.Fatal(err)
+		}
+		res = append(res, p)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	data := map[string]interface{}{
+		"code": 0,
+		"data": map[string]interface{}{
+			"postList": res,
+		},
+	}
+	json.NewEncoder(w).Encode(data)
+}
+
 func main() {
-	http.HandleFunc("/sk/users/login", login)           // 登录
-	http.HandleFunc("/sk/users/insert", insert)         // 新用户信息插入
-	http.HandleFunc("/sk/users/getOne", getOne)         // 个人信息页
-	http.HandleFunc("/sk/users/update", update)         // 老用户信息修改
-	http.HandleFunc("/sk/post/get", postGet)            // 帖子列表获取
-	http.HandleFunc("/sk/post/getOne", postGetOne)      // 获取单个帖子
-	http.HandleFunc("/sk/post/insert", postAdd)         // 添加帖子
-	http.HandleFunc("/sk/post/cate", postGetCate)       // 获取圈子中的帖子
-	http.HandleFunc("/sk/post/like", postLike)          // 帖子点赞
-	http.HandleFunc("/sk/comment/get", commentGet)      // 获取评论列表
-	http.HandleFunc("/sk/comment/like", commentLike)    // 评论点赞
-	http.HandleFunc("/sk/comment/co", commentCo)        // 评论帖子
-	http.HandleFunc("/sk/category/cate", circleGetCate) // 获取关注的圈子
-	http.HandleFunc("/sk/category/hot", circleGetHot)   // 获取热门圈子
-	http.HandleFunc("/sk/category/get", circleGetType)  // 获取指定类型圈子
-	http.HandleFunc("/sk/category/insert", circleAdd)   // 添加圈子
-	http.HandleFunc("/sk/category/type", categoryGet)   // 获取圈子类型
-	http.HandleFunc("/sk/category/addCa", circleFollow) //关注/取消关注圈子
+	http.HandleFunc("/sk/users/login", userLogin)         // 登录
+	http.HandleFunc("/sk/users/insert", userAdd)          // 新用户信息插入
+	http.HandleFunc("/sk/users/getOne", userGetOne)       // 个人信息页
+	http.HandleFunc("/sk/users/update", userUpdate)       // 老用户信息修改
+	http.HandleFunc("/sk/users/getPostList", userGetPost) // 获取用户的帖子
+	http.HandleFunc("/sk/post/get", postGet)              // 帖子列表获取
+	http.HandleFunc("/sk/post/getOne", postGetOne)        // 获取单个帖子
+	http.HandleFunc("/sk/post/insert", postAdd)           // 添加帖子
+	http.HandleFunc("/sk/post/delete", postDelete)        // 帖子删除
+	http.HandleFunc("/sk/post/getFol", postGetFollow)     // 获取关注圈子中的帖子
+	http.HandleFunc("/sk/post/cate", postGetCate)         // 获取圈子中的帖子
+	http.HandleFunc("/sk/post/like", postLike)            // 帖子点赞
+	http.HandleFunc("/sk/comment/get", commentGet)        // 获取评论列表
+	http.HandleFunc("/sk/comment/like", commentLike)      // 评论点赞
+	http.HandleFunc("/sk/comment/co", commentCo)          // 评论帖子
+	http.HandleFunc("/sk/category/cate", circleGetFollow) // 获取关注的圈子
+	http.HandleFunc("/sk/category/hot", circleGetHot)     // 获取热门圈子
+	http.HandleFunc("/sk/category/get", circleGetType)    // 获取指定类型圈子
+	http.HandleFunc("/sk/category/insert", circleAdd)     // 添加圈子
+	http.HandleFunc("/sk/category/type", categoryGet)     // 获取圈子类型
+	http.HandleFunc("/sk/category/addCa", circleFollow)   // 关注/取消关注圈子
+	http.HandleFunc("/sk/category/top", circleTop)        // 置顶/取消置顶圈子
 
 	err := http.ListenAndServe(":13001", nil) // 设置监听的端口
 	if err != nil {
